@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>땡큐 베리 머치!</title>
+  <meta name="description" content="익명으로 나누는 감사 노트. 오늘 하루 고마웠던 것을 적고 서로의 감사에 🍓로 반응해요.">
+  <meta name="theme-color" content="#F7F6F2">
+  <meta property="og:title" content="땡큐 베리 머치!">
+  <meta property="og:description" content="익명으로 나누는 감사 노트">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍓</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍓</text></svg>">
+  <link rel="preload" href="fonts/GyeonggiTitleM.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner hidden">데모 모드 — js/config.js 에 Supabase 정보를 넣으면 실제 데이터로 동작해요</div>
+
+  <header class="app-header" id="app-header">
+    <div class="container">
+      <a class="brand" href="#home">
+        <span class="brand-title">땡큐 베리 머치!</span>
+        <span class="brand-sub">익명으로 나누는 감사 노트</span>
+      </a>
+      <button class="icon-btn" id="theme-toggle" aria-label="라이트/다크 모드 전환">🌙</button>
+    </div>
+  </header>
+
+  <!-- 0. 첫 접속 닉네임 설정 -->
+  <section id="view-nickname" class="view">
+    <div class="onboard">
+      <div class="logo">땡큐 베리 머치!</div>
+      <div class="logo-sub">익명으로 나누는 감사 노트</div>
+      <p class="greet">반가워요! 땡큐 베리 머치에서 쓸 이름을 정해주세요</p>
+      <div class="card">
+        <div class="nick-preview">
+          <div class="nick" id="nick-preview-name">?</div>
+          <div class="intro" id="nick-preview-intro"></div>
+        </div>
+        <div class="field">
+          <label class="label" for="nick-input">닉네임 <span class="opt">2~10자</span></label>
+          <input id="nick-input" class="input" maxlength="10" autocomplete="off" placeholder="직접 쓰거나 랜덤으로 뽑아요">
+          <div class="help" id="nick-help">실명, 학교명, 전화번호는 쓸 수 없어요</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-block" id="nick-random">🎲 랜덤으로 정해주세요</button>
+        <button type="button" class="btn btn-primary btn-block btn-lg" id="nick-start" style="margin-top:10px">시작하기</button>
+      </div>
+      <p class="muted small">닉네임은 이 기기에만 저장돼요. 로그인은 필요 없어요.</p>
+    </div>
+  </section>
+
+  <!-- 1. 홈 -->
+  <section id="view-home" class="view container">
+    <h1 class="hero-title">땡큐 베리 머치!</h1>
+    <p class="hero-sub">익명으로 나누는 감사 노트</p>
+
+    <div class="card">
+      <div class="greeting" id="home-greeting"></div>
+      <div class="today" id="home-date"></div>
+      <div class="weather hidden" id="weather">
+        <div class="w-icon"></div>
+        <div>
+          <div><span class="w-temp"></span> <span class="w-desc"></span></div>
+          <div class="w-phrase"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card verse-card">
+      <div class="card-title">📖 오늘의 말씀 <span class="sub">매일 바뀌어요</span></div>
+      <div class="ref" id="votd-ref"></div>
+      <p class="summary" id="votd-summary"></p>
+      <a class="btn btn-outline btn-sm" id="votd-link" href="#" target="_blank" rel="noopener" style="margin-top:12px">성경 펴보기 →</a>
+    </div>
+
+    <div class="card story-card">
+      <div class="card-title">🌱 오늘의 감사 이야기</div>
+      <div class="story-title" id="story-title"></div>
+      <p class="story-body" id="story-body"></p>
+      <div class="story-src" id="story-src"></div>
+    </div>
+
+    <div class="cta"><a href="#write" class="btn btn-primary btn-block btn-lg">🍓 감사하러 가기</a></div>
+
+    <h2 class="section-title">📊 감사 통계</h2>
+    <div class="card">
+      <div class="stats-filters" id="stats-filters"></div>
+      <div class="counters">
+        <div class="counter-box"><div class="num" id="count-today">0</div><div class="lbl">오늘 감사</div></div>
+        <div class="counter-box"><div class="num" id="count-total">0</div><div class="lbl">누적 감사</div></div>
+      </div>
+      <div class="label">키워드</div>
+      <div class="cloud-wrap">
+        <canvas id="cloud"></canvas>
+        <div class="empty hidden"><span class="emo">🌱</span>아직 이 기간의 감사가 없어요</div>
+      </div>
+      <div class="label" style="margin-top:14px">감정</div>
+      <div class="chart-wrap">
+        <canvas id="emotion-chart"></canvas>
+        <div class="empty hidden"><span class="emo">😊</span>감정 데이터가 아직 없어요</div>
+      </div>
+    </div>
+
+    <h2 class="section-title">🕊 최근 감사 노트 <a href="#feed" class="link">전체 보기 →</a></h2>
+    <div id="home-recent"></div>
+  </section>
+
+  <!-- 2. 감사 작성 -->
+  <section id="view-write" class="view container">
+    <h2 class="section-title" id="write-title"></h2>
+    <div class="prompt-box">
+      <span class="q" id="prompt-q"></span>
+      <button type="button" class="icon-btn" id="prompt-refresh" aria-label="다른 질문">🔄</button>
+    </div>
+    <form id="write-form" novalidate>
+      <div class="field">
+        <label class="label" for="content">감사한 내용 <span class="opt">필수 · 최대 300자</span></label>
+        <textarea id="content" class="textarea" maxlength="300" placeholder="오늘 하루, 고마웠던 거 하나만 적어볼까요?"></textarea>
+        <div class="counter" id="content-counter">0 / 300</div>
+        <div class="help error hidden" id="content-help"></div>
+      </div>
+      <div class="field">
+        <div class="label">지금 마음은?</div>
+        <div class="emotion-grid" id="emotion-grid"></div>
+      </div>
+      <div class="field">
+        <div class="label">감사 키워드 <span class="opt">1~3개 선택</span></div>
+        <div class="chips" id="tag-chips"></div>
+        <div class="inline-form" style="margin-top:8px">
+          <input class="input" id="custom-tag" maxlength="8" placeholder="직접 입력 1개 (선택, 8자까지)">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="age-group">연령대 <span class="opt">선택 · 통계에만 사용</span></label>
+        <select id="age-group" class="select"></select>
+      </div>
+      <div class="notice warn">🔒 <span>실명, 학교명, 전화번호, SNS 아이디는 적지 말아주세요. 모두에게 보이는 익명 공간이에요.</span></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" id="submit-btn" style="margin-top:14px">감사 남기기</button>
+    </form>
+    <div id="write-result" class="hidden">
+      <div class="celebrate">
+        <div class="big">🍓</div>
+        <h3>오늘도 감사를 남겼어요</h3>
+        <p class="muted" id="result-sub"></p>
+      </div>
+      <div id="result-card"></div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-outline" id="save-image">🖼 이미지로 저장</button>
+        <a class="btn btn-secondary" href="#feed">모아보기 →</a>
+      </div>
+      <button type="button" class="btn btn-ghost btn-block" id="write-again" style="margin-top:8px">하나 더 쓰기</button>
+    </div>
+  </section>
+
+  <!-- 3. 모아보기 -->
+  <section id="view-feed" class="view container">
+    <h2 class="section-title">🍓 감사 모아보기</h2>
+    <div class="filters">
+      <select id="f-tag" class="select" aria-label="키워드 필터"></select>
+      <select id="f-emotion" class="select" aria-label="감정 필터"></select>
+      <select id="f-age" class="select" aria-label="연령대 필터"></select>
+    </div>
+    <p class="help" style="margin-bottom:10px">🍓 짧게 누르면 딸기 주기/취소, 꾹 누르면 딸기 준 사람 보기</p>
+    <div id="feed-list"></div>
+    <div class="loading hidden" id="feed-loading">불러오는 중…</div>
+    <div class="sentinel" id="feed-sentinel"></div>
+  </section>
+
+  <!-- 4. 내 기록 -->
+  <section id="view-mine" class="view container">
+    <h2 class="section-title">🙋 내 감사 기록</h2>
+    <div class="card">
+      <div class="me-head">
+        <span class="nick" id="me-nick"></span>
+        <button type="button" class="btn btn-outline btn-sm" id="change-nick" style="margin-left:auto">닉네임 변경</button>
+      </div>
+      <div class="muted small" id="me-intro"></div>
+      <div class="me-stats">
+        <div class="counter-box"><div class="num" id="me-berries">-</div><div class="lbl" id="me-berries-label">이번 주 받은 🍓</div></div>
+        <div class="counter-box"><div class="num" id="me-streak">0</div><div class="lbl">연속 작성일 🔥</div></div>
+      </div>
+    </div>
+    <div id="award-banner"></div>
+    <div class="card">
+      <div class="cal-head">
+        <button type="button" class="icon-btn" id="cal-prev" aria-label="이전 달">‹</button>
+        <strong id="cal-title"></strong>
+        <button type="button" class="icon-btn" id="cal-next" aria-label="다음 달">›</button>
+      </div>
+      <div class="calendar" id="calendar"></div>
+    </div>
+    <div class="notice">📱 <span>기기나 브라우저를 바꾸면 내 기록은 보이지 않아요. 글은 삭제하지 않는 한 모아보기에 남아요.</span></div>
+    <h3 class="section-title">내가 쓴 감사</h3>
+    <div id="my-list"></div>
+  </section>
+
+  <nav class="tabbar" id="tabbar">
+    <a href="#home" data-view="home"><span class="ico">🏠</span>홈</a>
+    <a href="#write" data-view="write"><span class="ico">✍️</span>감사하기</a>
+    <a href="#feed" data-view="feed"><span class="ico">🍓</span>모아보기</a>
+    <a href="#mine" data-view="mine"><span class="ico">🙋</span>내 기록</a>
+  </nav>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="overlay" id="overlay"><div class="sheet" id="sheet"><div class="grab"></div><div id="sheet-body"></div></div></div>
+  <canvas id="export-canvas" class="hidden" width="1080" height="1920" aria-hidden="true"></canvas>
+
+  <!-- 라이브러리 (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.3/src/wordcloud2.min.js"></script>
+  <!-- 설정 · 데이터 -->
+  <script src="js/config.js"></script>
+  <script src="data/names.js"></script>
+  <script src="data/badwords.js"></script>
+  <script src="data/prompts.js"></script>
+  <script src="data/stories.js"></script>
+  <script src="data/keywords.js"></script>
+  <script src="data/verse-pool.js"></script>
+  <!-- 앱 -->
+  <script src="js/api.js"></script>
+  <script src="js/nickname.js"></script>
+  <script src="js/verse-match.js"></script>
+  <script src="js/weather.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/strawberry.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
