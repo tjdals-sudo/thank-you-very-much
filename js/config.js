@@ -5,8 +5,8 @@
 // anon key 는 공개되어도 괜찮습니다. 데이터 접근은 RLS 와 RPC 로 제한됩니다.
 // =====================================================================
 window.APP_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: "",
+  SUPABASE_URL: "https://yfmyjwscdawfaegapxoc.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmbXlqd3NjZGF3ZmFlZ2FweG9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5MDc2OTAsImV4cCI6MjEwNjQ4MzY5MH0.aDmabfGC8zgEcTl5G72NYdjYsCAlsrWV6-cORvRFJXU",
 
   // 시상 주기: "week" (월요일 0시 ~ 일요일 24시, 한국 시간) 또는 "month"
   // supabase/schema.sql 의 app_settings.award_period 와 같은 값으로 맞추세요.

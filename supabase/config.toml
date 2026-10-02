@@ -1,0 +1,16 @@
+# Supabase CLI 설정 — `supabase config push` 는 여기 선언된 항목만 원격에 반영합니다.
+# 관리자 페이지 매직 링크가 돌아올 주소(GitHub Pages)를 Auth 에 등록합니다.
+project_id = "yfmyjwscdawfaegapxoc"
+
+[auth]
+site_url = "https://tjdals-sudo.github.io/thank-you-very-much/"
+additional_redirect_urls = [
+  "https://tjdals-sudo.github.io/thank-you-very-much/admin.html",
+  "https://tjdals-sudo.github.io/thank-you-very-much/",
+  "http://localhost:8080/admin.html",
+  "http://127.0.0.1:8765/admin.html"
+]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
