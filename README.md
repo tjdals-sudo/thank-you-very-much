@@ -96,28 +96,37 @@ window.APP_CONFIG = {
 
 ## 3. 관리자 페이지 설정
 
-관리자 페이지(`admin.html`)는 일반 화면 어디에도 링크가 없고, **Supabase Auth 이메일 매직 링크**로만 들어갈 수 있습니다.
-관리자 여부는 서버(DB)의 `admins` 테이블로 판단하므로, 주소를 알아도 등록된 이메일로 로그인하지 않으면 어떤 데이터도 볼 수 없습니다.
+관리자 페이지(`admin.html`)는 일반 화면 어디에도 링크가 없고, **아이디 + 비밀번호 로그인**으로만 들어갈 수 있습니다.
+관리자 여부는 서버(DB)의 `admins` 테이블로 판단하므로, 주소를 알아도 등록된 계정으로 로그인하지 않으면 어떤 데이터도 볼 수 없습니다.
 
-### 3-1. 관리자 이메일 등록
+Supabase Auth 는 이메일 형식 계정을 쓰기 때문에, 아이디 뒤에 `js/config.js` 의 `ADMIN_ID_DOMAIN` (기본 `tvm.local`)을 붙인 이메일을 내부적으로 사용합니다.
+예) 아이디 `john` → 계정 이메일 `john@tvm.local`
 
-SQL Editor 에서:
-```sql
-insert into public.admins(email) values ('you@example.com') on conflict do nothing;
-```
+### 3-1. 관리자 계정 만들기
 
-### 3-2. 매직 링크(이메일 로그인) 설정
+1. Supabase 대시보드 → **Authentication → Users → Add user → Create new user**
+   - Email: `아이디@tvm.local` (예: `john@tvm.local`)
+   - Password: 원하는 비밀번호 (6자 이상)
+   - **Auto Confirm User** 체크
+2. SQL Editor 에서 `admins` 테이블에 같은 이메일 등록:
+   ```sql
+   insert into public.admins(email) values ('john@tvm.local') on conflict do nothing;
+   ```
 
-1. 대시보드 → **Authentication → Providers → Email** : Enable 켜기 (기본 켜져 있음). "Confirm email" 은 꺼도 됩니다.
-2. 대시보드 → **Authentication → URL Configuration**
-   - **Site URL**: `https://<깃허브아이디>.github.io/<저장소이름>/`
-   - **Redirect URLs** 에 추가: `https://<깃허브아이디>.github.io/<저장소이름>/admin.html`
-     (로컬 테스트용으로 `http://localhost:8080/admin.html` 도 추가 가능)
-3. Supabase 기본 메일 발송은 시간당 발송 제한이 있습니다(무료 플랜 약 2~4통/시). 관리자 1~2명이면 충분하지만, 더 필요하면 Authentication → SMTP Settings 에 자체 SMTP 를 연결하세요.
+비밀번호 변경: Authentication → Users → 해당 사용자 → **Reset password** 또는 **Send password recovery** (recovery 는 실제 메일 주소가 아니면 쓸 수 없으니 Reset 을 사용).
+관리자 삭제: `admins` 테이블에서 행 삭제 (Auth 사용자도 함께 지우면 깔끔합니다).
+
+### 3-2. Auth 설정
+
+- **Authentication → Providers → Email**: Enable 켜기 (기본값). 이게 꺼지면 아이디+비밀번호 로그인 자체가 막힙니다.
+- **Authentication → Sign In / Providers → "Allow new users to sign up"**: 끄기 (공개 회원가입 차단). `supabase/config.toml` 에서는 최상위 `[auth] enable_signup = false` 에 해당하며, `[auth.email] enable_signup` 은 이메일 제공자 스위치이므로 `true` 로 둡니다.
+- **Authentication → URL Configuration → Site URL**: `https://<깃허브아이디>.github.io/<저장소이름>/`
+  (CLI 로 `supabase config push` 하면 `supabase/config.toml` 의 값이 반영됩니다)
 
 ### 3-3. 접속
 
-`https://<깃허브아이디>.github.io/<저장소이름>/admin.html` → 이메일 입력 → 메일의 링크 클릭 → 자동으로 관리자 페이지로 돌아옵니다.
+`https://<깃허브아이디>.github.io/<저장소이름>/admin.html` → 아이디 · 비밀번호 입력 → 관리자 페이지.
+로그인 상태는 브라우저에 유지되며, 우측 상단 **로그아웃**으로 끝낼 수 있습니다.
 
 관리자 페이지 기능:
 - 이번 주 딸기 랭킹 TOP 20 (동점 → 감사 노트 수 → 공동 순위), 남은 기간 카운트다운
@@ -172,7 +181,7 @@ gh api -X POST repos/<아이디>/thank-you-very-much/pages -f build_type=legacy 
 **웹에서**: 저장소 → Settings → Pages → Source: *Deploy from a branch* → Branch `main` / `/ (root)` → Save.
 1~2분 뒤 `https://<아이디>.github.io/thank-you-very-much/` 에서 열립니다.
 
-배포 후 Supabase **Authentication → URL Configuration** 의 Site URL / Redirect URLs 에 이 주소를 넣어주세요 (3-2 참고).
+배포 후 Supabase **Authentication → URL Configuration** 의 Site URL 에 이 주소를 넣어주세요 (3-2 참고).
 
 ---
 
@@ -236,7 +245,7 @@ gh api -X POST repos/<아이디>/thank-you-very-much/pages -f build_type=legacy 
   `device_id`, `owner_token_hash`, `needs_review` 는 컬럼 권한에서 제외되어 읽을 수 없음
 - `strawberries`, `awards`, `admins`, `nicknames` 등은 직접 읽기·쓰기 불가 → `security definer` RPC 로만 접근
 - 내 글 삭제·내 딸기 수·수상 코드 조회는 글 작성 시 기기에만 저장되는 **소유 토큰**(해시만 서버 저장)으로 확인
-- 관리자 RPC 는 함수 안에서 `is_admin()`(로그인 이메일이 `admins` 에 있는지)을 검사, 아니면 에러
+- 관리자 RPC 는 함수 안에서 `is_admin()`(로그인 계정 이메일이 `admins` 에 있는지)을 검사, 아니면 에러
 - 같은 기기 1분 내 연속 등록 제한(트리거), 딸기 1분 30회 제한, 글 300자·닉네임 2~10자·감정 허용값 check 제약
 
 > **service_role key 는 절대 프론트엔드에 넣지 마세요.** 그 키는 RLS 를 우회합니다.
@@ -262,7 +271,7 @@ Supabase 무료 플랜 프로젝트는 **7일 동안 API 요청이 없으면 자
 ```
 /
 ├─ index.html            메인 앱 (홈 / 감사하기 / 모아보기 / 내 기록)
-├─ admin.html            관리자 페이지 (링크 없음, 매직 링크 로그인)
+├─ admin.html            관리자 페이지 (링크 없음, 아이디+비밀번호 로그인)
 ├─ css/style.css         스타일 (맨 위 :root 에 테마 색상)
 ├─ fonts/                경기천년제목 Medium (woff2, woff)
 ├─ js/config.js          Supabase 설정, 시상 주기 등 (유일한 설정 파일)

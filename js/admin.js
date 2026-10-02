@@ -29,9 +29,9 @@
     A.onAuthChange(() => check());
     check();
     $("#login-form").addEventListener("submit", async e => {
-      e.preventDefault(); const email = $("#login-email").value.trim(); if (!email) return;
+      e.preventDefault(); const loginId = $("#login-id").value.trim(), pw = $("#login-pw").value; if (!loginId || !pw) return;
       $("#login-btn").disabled = true; $("#login-help").textContent = "";
-      try { await A.signIn(email); $("#login-help").textContent = `${email} 로 로그인 링크를 보냈어요. 메일함을 확인해주세요 (스팸함도요!)`; }
+      try { await A.signIn(loginId, pw); $("#login-pw").value = ""; await check(); }
       catch (err) { $("#login-help").textContent = window.friendlyError(err); }
       finally { $("#login-btn").disabled = false; }
     });
@@ -44,7 +44,7 @@
     try {
       const session = await A.getSession();
       if (!session) { show("login"); $("#signout").classList.add("hidden"); $("#admin-email").classList.add("hidden"); return; }
-      $("#admin-email").textContent = session.user.email; $("#admin-email").classList.remove("hidden"); $("#signout").classList.remove("hidden");
+      $("#admin-email").textContent = (session.user.email || "").split("@")[0]; $("#admin-email").classList.remove("hidden"); $("#signout").classList.remove("hidden");
       const ok = await A.isAdmin();
       if (!ok) { show("forbidden"); return; }
       show("dash"); loadAll();

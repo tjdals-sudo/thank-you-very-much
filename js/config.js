@@ -14,6 +14,10 @@ window.APP_CONFIG = {
   // 시상 인원 (app_settings.award_top_n 과 동일하게)
   AWARD_TOP_N: 3,
 
+  // 관리자 로그인: 아이디 + 비밀번호. 아이디 뒤에 이 도메인을 붙여 Supabase Auth 이메일로 사용합니다.
+  // (예: 아이디 john → john@tvm.local). admins 테이블에도 같은 이메일을 등록하세요.
+  ADMIN_ID_DOMAIN: "tvm.local",
+
   // 피드 한 번에 불러오는 개수
   PAGE_SIZE: 20,
   // 날씨 기본 위치 (위치 권한 거부 시): 서울

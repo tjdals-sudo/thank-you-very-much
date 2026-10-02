@@ -65,6 +65,8 @@
     NOT_FOUND: "글을 찾을 수 없어요",
     HIDDEN: "숨겨진 글이에요",
     FORBIDDEN: "관리자만 사용할 수 있어요",
+    "Invalid login credentials": "아이디 또는 비밀번호가 맞지 않아요",
+    "Email not confirmed": "아직 확인되지 않은 계정이에요",
     TAKEN: "이미 누군가 쓰고 있는 이름이에요",
     NOT_OWNER: "닉네임 소유 확인에 실패했어요",
     INVALID: "닉네임은 2~10자여야 해요"
@@ -280,9 +282,11 @@
     admin: {
       async getSession() { if (isDemo || !sb) return null; const { data } = await sb.auth.getSession(); return data.session; },
       onAuthChange(cb) { if (sb) sb.auth.onAuthStateChange((_e, s) => cb(s)); },
-      async signIn(email) {
-        const redirectTo = location.origin + location.pathname;
-        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
+      // 아이디 + 비밀번호 로그인 (아이디는 내부적으로 아이디@ADMIN_ID_DOMAIN 이메일로 변환)
+      async signIn(loginId, password) {
+        const id = String(loginId || "").trim().toLowerCase();
+        const email = id.includes("@") ? id : `${id}@${C.ADMIN_ID_DOMAIN || "tvm.local"}`;
+        const { error } = await sb.auth.signInWithPassword({ email, password });
         if (error) throw error;
       },
       async signOut() { if (sb) await sb.auth.signOut(); },
