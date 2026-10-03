@@ -246,7 +246,7 @@ img, canvas { max-width: 100%; }
 .story-card .story-title { font-weight: 700; margin-bottom: 6px; }
 .story-card .story-body { font-size: .92rem; line-height: 1.7; }
 .story-card .story-src { font-size: .75rem; color: var(--text-muted); margin-top: 8px; }
-.cta { margin: 20px 0 6px; }
+.cta { margin: 0 0 18px; }
 .stats-filters { display: flex; gap: 6px; margin-bottom: 12px; }
 .stats-filters .chip { flex: 1; text-align: center; padding: 7px 4px; font-size: .82rem; }
 .counters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
