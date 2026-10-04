@@ -57,6 +57,18 @@
   window.Store = Store;
   if (!Store.get("device_id")) Store.set("device_id", window.uuid());
   if (!Store.get("nick_token")) Store.set("nick_token", window.randomToken());
+  // 예전 버전은 닉네임을 기기에 저장해 자동 입장했음 → 이제는 들어올 때마다 닉네임+비밀번호 입력
+  Store.del("nickname"); Store.del("nickname_since"); Store.del("prev_nicknames");
+
+  // 로그인 세션 (탭을 닫으면 사라짐 — 다음에 들어올 때 다시 입력)
+  const Session = {
+    get() { try { return JSON.parse(sessionStorage.getItem("tvm_session")) || null; } catch { return null; } },
+    set(nickname, pin) { try { sessionStorage.setItem("tvm_session", JSON.stringify({ nickname, pin })); } catch {} },
+    clear() { try { sessionStorage.removeItem("tvm_session"); } catch {} },
+    nickname() { const s = Session.get(); return s ? s.nickname : null; },
+    pin() { const s = Session.get(); return s ? s.pin : ""; }
+  };
+  window.Session = Session;
 
   // 오류 메시지 변환
   const ERR = {
@@ -69,7 +81,12 @@
     "Email not confirmed": "아직 확인되지 않은 계정이에요",
     TAKEN: "이미 누군가 쓰고 있는 이름이에요",
     NOT_OWNER: "닉네임 소유 확인에 실패했어요",
-    INVALID: "닉네임은 2~10자여야 해요"
+    INVALID: "닉네임은 2~10자여야 해요",
+    BAD_PIN: "비밀번호는 숫자 4자리예요",
+    WRONG_PIN: "비밀번호가 맞지 않아요",
+    LOCKED: "비밀번호를 여러 번 틀렸어요. 10분 뒤에 다시 해주세요",
+    NO_NICK: "다시 들어와 주세요",
+    NO_PIN: "다시 들어와 주세요"
   };
   window.friendlyError = function (e) {
     const msg = (e && (e.message || e.error || e)) + "";
@@ -145,23 +162,16 @@
       if (isDemo) return demoDB().nicknames.some(n => n.nickname === nick.trim());
       return !!(await rpc("nickname_exists", { p_nickname: nick }));
     },
-    async claimNickname(nick, token) {
+    // 닉네임 + 숫자 4자리로 입장 (없으면 새로 만들고, 있으면 비밀번호 확인)
+    async enterNickname(nick, pin) {
       if (isDemo) {
-        const db = demoDB();
-        if (db.nicknames.some(n => n.nickname === nick.trim())) return { ok: false, error: "TAKEN" };
-        db.nicknames.push({ nickname: nick.trim(), owner_token_hash: token }); saveDemo(db);
-        return { ok: true };
+        const db = demoDB(); const n = nick.trim();
+        const row = db.nicknames.find(x => x.nickname === n);
+        if (!row) { db.nicknames.push({ nickname: n, pin }); saveDemo(db); return { ok: true, status: "created" }; }
+        if (!row.pin) { row.pin = pin; saveDemo(db); return { ok: true, status: "pin_set" }; }
+        return row.pin === pin ? { ok: true, status: "login" } : { ok: false, error: "WRONG_PIN" };
       }
-      return await rpc("claim_nickname", { p_nickname: nick, p_token: token });
-    },
-    async changeNickname(oldNick, newNick, token) {
-      if (isDemo) {
-        const db = demoDB();
-        if (db.nicknames.some(n => n.nickname === newNick.trim())) return { ok: false, error: "TAKEN" };
-        db.nicknames.push({ nickname: newNick.trim(), owner_token_hash: token }); saveDemo(db);
-        return { ok: true };
-      }
-      return await rpc("change_nickname", { p_old: oldNick, p_new: newNick, p_token: token });
+      return await rpc("enter_nickname", { p_nickname: nick, p_pin: pin, p_token: Store.get("nick_token") });
     },
 
     // ---------- 감사 노트 ----------
@@ -174,9 +184,13 @@
         db.gratitudes.unshift(g); saveDemo(db);
         return { id: g.id, created_at: g.created_at };
       }
-      const { data, error } = await sb.from("gratitudes").insert(row).select("id, created_at").single();
-      if (error) throw error;
-      return data;
+      const r = await rpc("create_gratitude", {
+        p_nickname: row.nickname, p_pin: Session.pin(), p_device_id: row.device_id, p_content: row.content,
+        p_emotion: row.emotion, p_tags: row.tags, p_age_group: row.age_group, p_verse_id: row.verse_id,
+        p_verse_reason: row.verse_reason, p_needs_review: row.needs_review
+      });
+      if (!r || !r.ok) throw new Error((r && r.error) || "UNKNOWN");
+      return r;
     },
     async fetchFeed({ offset = 0, limit = C.PAGE_SIZE || 20, tag = "", emotion = "", age = "" } = {}) {
       if (isDemo) {
@@ -194,20 +208,24 @@
       return data || [];
     },
     async fetchRecent(n = C.RECENT_COUNT || 5) { return API.fetchFeed({ offset: 0, limit: n }); },
-    async fetchByIds(ids) {
-      if (!ids || !ids.length) return [];
-      if (isDemo) return demoDB().gratitudes.filter(g => ids.includes(g.id) && !g.is_hidden).map(pub);
-      const { data, error } = await sb.from("gratitudes_public").select("*").in("id", ids).order("created_at", { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    async deleteGratitude(id, token) {
+    // 내 글 목록 (현재 로그인한 닉네임 기준)
+    async fetchMine() {
+      const nick = Session.nickname();
       if (isDemo) {
-        const db = demoDB(); const i = db.gratitudes.findIndex(g => g.id === id);
+        const mine = demoDB().gratitudes.filter(g => g.nickname === nick);
+        return { items: mine.filter(g => !g.is_hidden).sort((a, b) => b.created_at.localeCompare(a.created_at)).map(pub), hidden_count: mine.filter(g => g.is_hidden).length };
+      }
+      const r = await rpc("get_my_gratitudes", { p_nickname: nick, p_pin: Session.pin() });
+      if (!r || !r.ok) throw new Error((r && r.error) || "UNKNOWN");
+      return r;
+    },
+    async deleteGratitude(id) {
+      if (isDemo) {
+        const db = demoDB(); const i = db.gratitudes.findIndex(g => g.id === id && g.nickname === Session.nickname());
         if (i >= 0) { db.gratitudes.splice(i, 1); saveDemo(db); return true; }
         return false;
       }
-      return !!(await rpc("delete_gratitude", { p_gratitude_id: id, p_token: token }));
+      return !!(await rpc("delete_my_gratitude", { p_gratitude_id: id, p_nickname: Session.nickname(), p_pin: Session.pin() }));
     },
     async report(id) {
       if (isDemo) {
@@ -248,19 +266,18 @@
       }
       return (await rpc("get_strawberry_givers", { p_gratitude_id: id })) || [];
     },
-    async getMyStrawberries(tokens) {
+    // 이번 기간 받은 딸기 + 직전 기간 수상 정보
+    async getMySummary() {
+      const nick = Session.nickname();
       if (isDemo) {
-        const ids = (Store.get("posts", [])).map(p => p.id); const start = window.periodStart().toISOString();
-        return demoDB().gratitudes.filter(g => ids.includes(g.id) && !g.is_hidden)
+        const start = window.periodStart().toISOString();
+        const strawberries = demoDB().gratitudes.filter(g => g.nickname === nick && !g.is_hidden)
           .reduce((a, g) => a + g._berries.filter(b => b.created_at >= start).length, 0);
+        return { strawberries, award: null };
       }
-      if (!tokens || !tokens.length) return 0;
-      return (await rpc("get_my_strawberries", { p_tokens: tokens })) || 0;
-    },
-    async getMyAward(tokens) {
-      if (isDemo) return null;
-      if (!tokens || !tokens.length) return null;
-      return await rpc("get_my_award", { p_tokens: tokens });
+      const r = await rpc("get_my_summary", { p_nickname: nick, p_pin: Session.pin() });
+      if (!r || !r.ok) throw new Error((r && r.error) || "UNKNOWN");
+      return r;
     },
 
     // ---------- 통계 ----------

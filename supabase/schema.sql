@@ -29,6 +29,9 @@ create table if not exists public.app_secrets (
 insert into public.app_secrets(key, value)
   values ('claim_salt', md5(random()::text || clock_timestamp()::text))
 on conflict (key) do nothing;
+insert into public.app_secrets(key, value)
+  values ('pin_salt', md5(random()::text || clock_timestamp()::text))
+on conflict (key) do nothing;
 
 -- ---------- 테이블 ----------
 create table if not exists public.nicknames (
@@ -36,6 +39,10 @@ create table if not exists public.nicknames (
   owner_token_hash text,
   created_at       timestamptz not null default now()
 );
+-- 닉네임 + 숫자 4자리 비밀번호 (본인 확인용)
+alter table public.nicknames add column if not exists pin_hash        text;
+alter table public.nicknames add column if not exists failed_attempts integer not null default 0;
+alter table public.nicknames add column if not exists locked_until    timestamptz;
 
 create table if not exists public.gratitudes (
   id               uuid primary key default gen_random_uuid(),
@@ -120,9 +127,7 @@ revoke all on all sequences in schema public from anon, authenticated;
 grant select (id, nickname, content, emotion, tags, age_group, verse_id, verse_reason,
               strawberry_count, report_count, is_hidden, created_at)
   on public.gratitudes to anon, authenticated;
-grant insert (nickname, device_id, content, emotion, tags, age_group, verse_id, verse_reason,
-              needs_review, owner_token_hash)
-  on public.gratitudes to anon, authenticated;
+-- 글 등록은 닉네임 비밀번호를 확인하는 create_gratitude() RPC 로만 가능 (직접 insert 권한 없음)
 grant select on public.gratitudes_public to anon, authenticated;
 
 -- ---------- RLS ----------
@@ -250,22 +255,154 @@ exception when unique_violation then
   return json_build_object('ok', false, 'error', 'TAKEN');
 end $$;
 
+-- ---------- 닉네임 + 비밀번호 ----------
+create or replace function public.pin_hash_for(p_nickname text, p_pin text)
+returns text language sql stable security definer set search_path = public as $$
+  select public.hash_token((select value from public.app_secrets where key = 'pin_salt') || ':' || btrim(p_nickname) || ':' || coalesce(p_pin, ''));
+$$;
+
+-- 비밀번호 확인 (5번 틀리면 10분 잠금). 예외를 던지지 않아야 실패 횟수가 저장됨
+-- 결과: 'OK' | 'NO_NICK' | 'NO_PIN' | 'WRONG_PIN' | 'LOCKED'
+create or replace function public.check_nickname_pin(p_nickname text, p_pin text)
+returns text language plpgsql security definer set search_path = public as $$
+declare n record;
+begin
+  select * into n from public.nicknames where nickname = btrim(p_nickname) for update;
+  if not found then return 'NO_NICK'; end if;
+  if n.pin_hash is null then return 'NO_PIN'; end if;
+  if n.locked_until is not null and n.locked_until > now() then return 'LOCKED'; end if;
+  if n.pin_hash = public.pin_hash_for(n.nickname, p_pin) then
+    if n.failed_attempts <> 0 or n.locked_until is not null then
+      update public.nicknames set failed_attempts = 0, locked_until = null where nickname = n.nickname;
+    end if;
+    return 'OK';
+  end if;
+  update public.nicknames
+     set failed_attempts = case when n.failed_attempts + 1 >= 5 then 0 else n.failed_attempts + 1 end,
+         locked_until    = case when n.failed_attempts + 1 >= 5 then now() + interval '10 minutes' else null end
+   where nickname = n.nickname;
+  return case when n.failed_attempts + 1 >= 5 then 'LOCKED' else 'WRONG_PIN' end;
+end $$;
+
+-- 입장: 없는 닉네임이면 새로 만들고, 있으면 비밀번호 확인
+-- 비밀번호가 없던 예전 닉네임은 처음 만든 기기(p_token 일치)에서만 비밀번호를 정할 수 있음
+create or replace function public.enter_nickname(p_nickname text, p_pin text, p_token text default null)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  v_nick text := btrim(p_nickname);
+  v_res  text;
+begin
+  if char_length(v_nick) < 2 or char_length(v_nick) > 10 then
+    return json_build_object('ok', false, 'error', 'INVALID');
+  end if;
+  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then
+    return json_build_object('ok', false, 'error', 'BAD_PIN');
+  end if;
+  v_res := public.check_nickname_pin(v_nick, p_pin);
+  if v_res = 'OK' then return json_build_object('ok', true, 'status', 'login'); end if;
+  if v_res = 'NO_NICK' then
+    insert into public.nicknames(nickname, owner_token_hash, pin_hash)
+      values (v_nick, public.hash_token(p_token), public.pin_hash_for(v_nick, p_pin));
+    return json_build_object('ok', true, 'status', 'created');
+  end if;
+  if v_res = 'NO_PIN' then
+    update public.nicknames set pin_hash = public.pin_hash_for(v_nick, p_pin)
+     where nickname = v_nick and pin_hash is null
+       and p_token is not null and owner_token_hash = public.hash_token(p_token);
+    if found then return json_build_object('ok', true, 'status', 'pin_set'); end if;
+    return json_build_object('ok', false, 'error', 'TAKEN');
+  end if;
+  return json_build_object('ok', false, 'error', v_res);
+exception when unique_violation then
+  return json_build_object('ok', false, 'error', 'TAKEN');
+end $$;
+
+-- 글 등록 (비밀번호 확인 후)
+create or replace function public.create_gratitude(
+  p_nickname text, p_pin text, p_device_id text, p_content text, p_emotion text, p_tags text[],
+  p_age_group text, p_verse_id text, p_verse_reason text, p_needs_review boolean)
+returns json language plpgsql security definer set search_path = public as $$
+declare v_res text; v_id uuid; v_at timestamptz;
+begin
+  v_res := public.check_nickname_pin(p_nickname, p_pin);
+  if v_res <> 'OK' then return json_build_object('ok', false, 'error', v_res); end if;
+  insert into public.gratitudes(nickname, device_id, content, emotion, tags, age_group, verse_id, verse_reason,
+                                needs_review, owner_token_hash)
+    values (btrim(p_nickname), p_device_id, p_content, p_emotion, p_tags, p_age_group, p_verse_id, p_verse_reason,
+            coalesce(p_needs_review, false), public.hash_token(gen_random_uuid()::text))
+    returning id, created_at into v_id, v_at;
+  return json_build_object('ok', true, 'id', v_id, 'created_at', v_at);
+end $$;
+
+-- 내 글 목록 (숨겨진 글은 개수만)
+create or replace function public.get_my_gratitudes(p_nickname text, p_pin text)
+returns json language plpgsql security definer set search_path = public as $$
+declare v_res text;
+begin
+  v_res := public.check_nickname_pin(p_nickname, p_pin);
+  if v_res <> 'OK' then return json_build_object('ok', false, 'error', v_res); end if;
+  return json_build_object(
+    'ok', true,
+    'items', coalesce((
+      select json_agg(row_to_json(x) order by x.created_at desc)
+      from (select id, nickname, content, emotion, tags, age_group, verse_id, verse_reason,
+                   strawberry_count, report_count, is_hidden, created_at
+              from public.gratitudes where nickname = btrim(p_nickname) and is_hidden = false) x
+    ), '[]'::json),
+    'hidden_count', (select count(*) from public.gratitudes where nickname = btrim(p_nickname) and is_hidden = true)
+  );
+end $$;
+
+-- 이번 기간 받은 딸기 + 직전 기간 수상 정보
+create or replace function public.get_my_summary(p_nickname text, p_pin text)
+returns json language plpgsql security definer set search_path = public as $$
+declare v_res text; v_nick text := btrim(p_nickname); b record; a record; v_total integer;
+begin
+  v_res := public.check_nickname_pin(v_nick, p_pin);
+  if v_res <> 'OK' then return json_build_object('ok', false, 'error', v_res); end if;
+  select * into b from public.period_bounds();
+  select count(*) into v_total
+    from public.strawberries s join public.gratitudes g on g.id = s.gratitude_id
+   where g.nickname = v_nick and g.is_hidden = false
+     and s.created_at >= b.start_ts and s.created_at < b.end_ts;
+  select * into a from public.awards aw
+   where aw.period_type = b.period_type and aw.period_end = b.start_ts and aw.nickname = v_nick
+   order by aw.rank asc limit 1;
+  return json_build_object('ok', true, 'strawberries', coalesce(v_total, 0),
+    'award', case when a.id is null then null else json_build_object(
+      'id', a.id, 'rank', a.rank, 'period_type', a.period_type,
+      'period_start', a.period_start, 'period_end', a.period_end,
+      'strawberry_total', a.strawberry_total, 'nickname', a.nickname,
+      'claim_code', public.award_claim_code(a.id), 'delivered', a.delivered) end);
+end $$;
+
+create or replace function public.delete_my_gratitude(p_gratitude_id uuid, p_nickname text, p_pin text)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_deleted integer;
+begin
+  if public.check_nickname_pin(p_nickname, p_pin) <> 'OK' then return false; end if;
+  delete from public.gratitudes where id = p_gratitude_id and nickname = btrim(p_nickname);
+  get diagnostics v_deleted = row_count;
+  return v_deleted > 0;
+end $$;
+
 create or replace function public.toggle_strawberry(p_gratitude_id uuid, p_device_id text, p_nickname text)
 returns json language plpgsql security definer set search_path = public as $$
 declare
   v_owner text;
+  v_owner_nick text;
   v_hidden boolean;
   v_given boolean;
   v_count integer;
 begin
-  select device_id, is_hidden into v_owner, v_hidden from public.gratitudes where id = p_gratitude_id;
+  select device_id, is_hidden, nickname into v_owner, v_hidden, v_owner_nick from public.gratitudes where id = p_gratitude_id;
   if v_owner is null then
     raise exception 'NOT_FOUND' using hint = '글을 찾을 수 없어요';
   end if;
   if v_hidden then
     raise exception 'HIDDEN' using hint = '숨겨진 글이에요';
   end if;
-  if v_owner = p_device_id then
+  if v_owner = p_device_id or v_owner_nick = btrim(coalesce(p_nickname, '')) then
     raise exception 'OWN_POST' using hint = '내 글에는 딸기를 줄 수 없어요';
   end if;
   if (select count(*) from public.strawberry_events
@@ -637,11 +774,18 @@ revoke execute on function public.ranking_for(timestamptz, timestamptz, integer)
 revoke execute on function public.close_award_period(boolean)                        from public, anon, authenticated;
 revoke execute on function public.gratitudes_before_insert()                         from public, anon, authenticated;
 revoke execute on function public.assert_admin()                                     from public, anon, authenticated;
+revoke execute on function public.pin_hash_for(text, text)                           from public, anon, authenticated;
+revoke execute on function public.check_nickname_pin(text, text)                     from public, anon, authenticated;
 
 -- 공개 RPC
 grant execute on function public.nickname_exists(text)                               to anon, authenticated;
 grant execute on function public.claim_nickname(text, text)                          to anon, authenticated;
 grant execute on function public.change_nickname(text, text, text)                   to anon, authenticated;
+grant execute on function public.enter_nickname(text, text, text)                    to anon, authenticated;
+grant execute on function public.create_gratitude(text, text, text, text, text, text[], text, text, text, boolean) to anon, authenticated;
+grant execute on function public.get_my_gratitudes(text, text)                       to anon, authenticated;
+grant execute on function public.get_my_summary(text, text)                          to anon, authenticated;
+grant execute on function public.delete_my_gratitude(uuid, text, text)               to anon, authenticated;
 grant execute on function public.toggle_strawberry(uuid, text, text)                 to anon, authenticated;
 grant execute on function public.get_strawberry_givers(uuid)                         to anon, authenticated;
 grant execute on function public.get_my_strawberries(text[])                         to anon, authenticated;

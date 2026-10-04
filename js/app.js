@@ -7,7 +7,7 @@
   const AGES = ["초등", "중등", "고등", "청년", "성인"];
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-  const Store = window.Store, esc = window.escapeHtml;
+  const Store = window.Store, Session = window.Session, esc = window.escapeHtml;
   const periodLabel = (C.AWARD_PERIOD === "month") ? "이번 달" : "이번 주";
 
   // ---------- 공통 UI ----------
@@ -40,16 +40,12 @@
     window.refreshChartTheme(); if (statsCache) renderStats(statsCache);
   });
 
-  // ---------- 내 글 (localStorage) ----------
-  const myPosts = () => Store.get("posts", []);
-  const myTokens = () => myPosts().map(p => p.token);
-  const myIds = () => new Set(myPosts().map(p => p.id));
-  function addMyPost(p) { const list = myPosts(); list.unshift(p); Store.set("posts", list.slice(0, 500)); }
-  function removeMyPost(id) { Store.set("posts", myPosts().filter(p => p.id !== id)); }
+  // ---------- 내 글 (로그인한 닉네임 기준) ----------
+  let minePosts = [];
 
   // ---------- 감사 카드 렌더링 (모든 화면 공통) ----------
   window.renderCard = function (g, { mine = false, deletable = false } = {}) {
-    const isMine = mine || myIds().has(g.id);
+    const isMine = mine || g.nickname === Session.nickname();
     const v = g.verse_id ? window.verseById(g.verse_id) : null;
     const verseHtml = v ? `
       <div class="verse-box">
@@ -87,10 +83,9 @@
     const del = e.target.closest(".delete-btn");
     if (del) {
       if (!confirm("이 감사 노트를 삭제할까요? 되돌릴 수 없어요.")) return;
-      const p = myPosts().find(x => x.id === del.dataset.id);
       try {
-        const ok = await window.API.deleteGratitude(del.dataset.id, p ? p.token : "");
-        if (ok) { removeMyPost(del.dataset.id); window.toast("삭제했어요"); loadMine(); }
+        const ok = await window.API.deleteGratitude(del.dataset.id);
+        if (ok) { window.toast("삭제했어요"); homeLoadedAt = 0; feed.loadedOnce = false; loadMine(); }
         else window.toast("삭제하지 못했어요. 이미 지워졌을 수 있어요");
       } catch (err) { window.toast(window.friendlyError(err)); }
     }
@@ -100,7 +95,7 @@
   const VIEWS = ["home", "write", "feed", "mine"];
   function currentView() { const h = location.hash.replace("#", ""); return VIEWS.includes(h) ? h : "home"; }
   function route() {
-    const nick = Store.get("nickname");
+    const nick = Session.nickname();
     $$(".view").forEach(v => v.classList.remove("active"));
     if (!nick) {
       document.body.classList.add("no-tabbar"); $("#tabbar").classList.add("hidden"); $("#app-header").classList.add("hidden");
@@ -118,39 +113,51 @@
   }
   window.addEventListener("hashchange", route);
 
-  // ---------- 0. 닉네임 설정 ----------
-  let nickInited = false, nickCandidate = null;
+  // ---------- 0. 입장 (닉네임 + 숫자 4자리) ----------
+  let nickInited = false;
   function initNicknameView() {
-    if (nickInited) return; nickInited = true;
-    const input = $("#nick-input"), help = $("#nick-help"), pName = $("#nick-preview-name"), pIntro = $("#nick-preview-intro");
+    const input = $("#nick-input"), help = $("#nick-help"), pin = $("#pin-input"), pinHelp = $("#pin-help");
+    const pName = $("#nick-preview-name"), pIntro = $("#nick-preview-intro");
     const show = (name, intro) => { pName.textContent = name || "?"; pIntro.textContent = intro || ""; };
-    async function randomize() {
+    if (nickInited) { input.value = ""; pin.value = ""; show("?", ""); return; }
+    nickInited = true;
+    $("#nick-random").addEventListener("click", async () => {
       $("#nick-random").disabled = true; show("뽑는 중…", "");
       const c = await window.randomUniqueNickname(20);
       $("#nick-random").disabled = false;
       if (!c) { show("?", ""); help.textContent = "닉네임을 뽑지 못했어요. 다시 뽑기를 눌러주세요"; help.classList.add("error"); return; }
-      nickCandidate = c; input.value = c.name; show(c.name, `${c.person} — ${c.intro}`);
-      help.textContent = "마음에 들면 시작하기를 눌러요. 직접 고쳐 써도 돼요"; help.classList.remove("error");
-    }
-    $("#nick-random").addEventListener("click", randomize);
+      input.value = c.name; show(c.name, `${c.person} — ${c.intro}`);
+      help.textContent = "마음에 들면 비밀번호를 정하고 시작하기를 눌러요"; help.classList.remove("error");
+      pin.focus();
+    });
     input.addEventListener("input", () => {
       const n = input.value.trim(); show(n || "?", window.personIntroFor(n));
       const err = window.validateNickname(n);
-      help.textContent = err || "실명, 학교명, 전화번호는 쓸 수 없어요"; help.classList.toggle("error", !!err && n.length > 0);
+      help.textContent = err || "처음이면 새로 만들어지고, 전에 쓰던 닉네임이면 이어서 들어가요"; help.classList.toggle("error", !!err && n.length > 0);
     });
+    pin.addEventListener("input", () => { pin.value = pin.value.replace(/\D/g, "").slice(0, 4); pinHelp.classList.remove("error"); });
+    pin.addEventListener("keydown", e => { if (e.key === "Enter") $("#nick-start").click(); });
     $("#nick-start").addEventListener("click", async () => {
       const n = input.value.trim(); const err = window.validateNickname(n);
       if (err) { help.textContent = err; help.classList.add("error"); input.focus(); return; }
+      const p = pin.value;
+      if (!/^\d{4}$/.test(p)) { pinHelp.textContent = "비밀번호는 숫자 4자리로 입력해주세요"; pinHelp.classList.add("error"); pin.focus(); return; }
       const btn = $("#nick-start"); btn.disabled = true; btn.textContent = "확인 중…";
       try {
-        const r = await window.API.claimNickname(n, Store.get("nick_token"));
-        if (!r.ok) { help.textContent = r.error === "TAKEN" ? "이미 누군가 쓰고 있는 이름이에요" : window.friendlyError(r.error); help.classList.add("error"); return; }
-        Store.set("nickname", n); Store.set("nickname_since", new Date().toISOString());
-        location.hash = "#home"; route(); window.toast(`${n}님, 반가워요! 🍓`);
-      } catch (e) { help.textContent = window.friendlyError(e); help.classList.add("error"); }
+        const r = await window.API.enterNickname(n, p);
+        if (!r.ok) {
+          const msg = r.error === "WRONG_PIN" ? "비밀번호가 맞지 않아요. 처음 쓰는 닉네임이라면 이미 다른 사람이 쓰고 있는 이름이에요"
+            : r.error === "TAKEN" ? "이미 누군가 쓰고 있는 이름이에요. 다른 닉네임을 써주세요"
+            : window.friendlyError(r.error);
+          pinHelp.textContent = msg; pinHelp.classList.add("error"); pin.value = ""; pin.focus(); return;
+        }
+        Session.set(n, p); pin.value = "";
+        location.hash = "#home"; route();
+        window.toast(r.status === "login" ? `${n}님, 다시 오셨네요! 🍓` : `${n}님, 반가워요! 비밀번호 꼭 기억해주세요 🍓`, 3200);
+      } catch (e) { pinHelp.textContent = window.friendlyError(e); pinHelp.classList.add("error"); }
       finally { btn.disabled = false; btn.textContent = "시작하기"; }
     });
-    randomize();
+    setTimeout(() => input.focus(), 50);
   }
 
   // ---------- 1. 홈 ----------
@@ -171,7 +178,7 @@
     statsPeriod = c.dataset.period; Store.set("stats_period", statsPeriod); loadStats();
   });
   async function loadHome() {
-    const nick = Store.get("nickname");
+    const nick = Session.nickname();
     $("#home-greeting").textContent = `${nick}님, 안녕하세요`;
     const p = window.kstParts();
     $("#home-date").textContent = `${p.y}년 ${p.m}월 ${p.d}일 ${["일", "월", "화", "수", "목", "금", "토"][p.dow]}요일`;
@@ -203,7 +210,7 @@
   const W = { emotion: null, tags: new Set(), submitting: false, inited: false, last: null };
   function newPrompt() { $("#prompt-q").textContent = window.PROMPTS[Math.floor(Math.random() * window.PROMPTS.length)]; }
   function initWrite() {
-    $("#write-title").textContent = `✍️ ${Store.get("nickname")}님의 오늘 감사`;
+    $("#write-title").textContent = `✍️ ${Session.nickname()}님의 오늘 감사`;
     if (W.inited) return; W.inited = true;
     newPrompt(); $("#prompt-refresh").addEventListener("click", newPrompt);
     $("#emotion-grid").innerHTML = window.EMOTIONS.map(e => `<button type="button" class="emotion-btn" data-emo="${e.emo}"><span class="emo">${e.emo}</span><span class="name">${e.name}</span></button>`).join("");
@@ -257,20 +264,18 @@
 
     W.submitting = true; const btn = $("#submit-btn"); btn.disabled = true; btn.textContent = "남기는 중…";
     const age = $("#age-group").value || null; Store.set("age_group", age || "");
-    const nickname = Store.get("nickname");
-    const token = window.randomToken();
+    const nickname = Session.nickname();
     const crisis = window.hasCrisisSignal(content);
     let rec = null;
     if (!crisis) rec = window.recommendVerse(content, tags, W.emotion);
     const row = {
       nickname, device_id: Store.get("device_id"), content, emotion: W.emotion, tags, age_group: age,
       verse_id: rec ? rec.verse.id : null, verse_reason: rec ? rec.reason : null,
-      needs_review: crisis, owner_token_hash: await window.sha256Hex(token)
+      needs_review: crisis
     };
     try {
       const r = await window.API.createGratitude(row);
       Store.set("last_post_at", Date.now());
-      addMyPost({ id: r.id, token, created_at: r.created_at, emotion: W.emotion, date: window.kstDateStr(new Date(r.created_at)) });
       const g = { ...row, id: r.id, created_at: r.created_at, strawberry_count: 0 };
       W.last = { g, crisis };
       $("#result-card").innerHTML = window.renderCard(g, { mine: true }) + (crisis ? `<div class="care-box">💛 힘든 마음을 나눠줘서 감사해요. 혼자 견디지 않아도 돼요. 주변 어른이나 상담 창구(청소년상담 <a href="tel:1388">1388</a>, 자살예방 <a href="tel:109">109</a>)에 이야기해 보세요.</div>` : "");
@@ -416,19 +421,16 @@
     }
     $("#calendar").innerHTML = html;
   }
-  $("#cal-prev").addEventListener("click", () => { calCursor.m--; if (calCursor.m < 1) { calCursor.m = 12; calCursor.y--; } renderCalendar(myPosts()); });
-  $("#cal-next").addEventListener("click", () => { calCursor.m++; if (calCursor.m > 12) { calCursor.m = 1; calCursor.y++; } renderCalendar(myPosts()); });
+  $("#cal-prev").addEventListener("click", () => { calCursor.m--; if (calCursor.m < 1) { calCursor.m = 12; calCursor.y--; } renderCalendar(minePosts); });
+  $("#cal-next").addEventListener("click", () => { calCursor.m++; if (calCursor.m > 12) { calCursor.m = 1; calCursor.y++; } renderCalendar(minePosts); });
 
   async function loadMine() {
-    const nick = Store.get("nickname");
+    const nick = Session.nickname();
     $("#me-nick").textContent = nick; $("#me-intro").textContent = window.personIntroFor(nick);
     $("#me-berries-label").textContent = `${periodLabel} 받은 🍓`;
-    const posts = myPosts();
-    $("#me-streak").textContent = streakDays(posts.map(p => p.date || window.kstDateStr(new Date(p.created_at))));
-    renderCalendar(posts);
-    window.API.getMyStrawberries(myTokens()).then(n => { $("#me-berries").textContent = n; }).catch(() => { $("#me-berries").textContent = "-"; });
-    // 수상 안내 (본인 기기에만)
-    window.API.getMyAward(myTokens()).then(a => {
+    window.API.getMySummary().then(({ strawberries, award: a }) => {
+      $("#me-berries").textContent = strawberries;
+      // 수상 안내 (본인에게만)
       const box = $("#award-banner"); if (!a) { box.innerHTML = ""; return; }
       const pl = a.period_type === "month" ? "지난달" : "지난주";
       box.innerHTML = `<div class="card award-banner">
@@ -438,44 +440,25 @@
         <div class="code">${esc(a.claim_code)}</div>
         ${a.delivered ? '<p class="muted small" style="text-align:center">✅ 상품 전달 완료</p>' : ""}
       </div>`;
-    }).catch(() => {});
+    }).catch(() => { $("#me-berries").textContent = "-"; $("#award-banner").innerHTML = ""; });
     // 내가 쓴 글
     const listEl = $("#my-list");
-    if (!posts.length) { listEl.innerHTML = emptyHtml("✍️", "아직 이 기기에서 쓴 감사가 없어요"); return; }
     listEl.innerHTML = `<div class="loading">불러오는 중…</div>`;
     try {
-      const rows = await window.API.fetchByIds(posts.map(p => p.id));
-      const missing = posts.length - rows.length;
-      listEl.innerHTML = (rows.length ? rows.map(g => window.renderCard(g, { mine: true, deletable: true })).join("") : emptyHtml("🍓", "표시할 글이 없어요"))
-        + (missing > 0 ? `<p class="muted small" style="text-align:center">${missing}개의 글은 삭제되었거나 신고로 숨겨져 보이지 않아요</p>` : "");
-    } catch (e) { listEl.innerHTML = emptyHtml("😢", window.friendlyError(e)); }
+      const { items, hidden_count } = await window.API.fetchMine();
+      minePosts = items;
+      $("#me-streak").textContent = streakDays(items.map(p => window.kstDateStr(new Date(p.created_at))));
+      renderCalendar(items);
+      listEl.innerHTML = (items.length ? items.map(g => window.renderCard(g, { mine: true, deletable: true })).join("") : emptyHtml("✍️", "아직 쓴 감사가 없어요"))
+        + (hidden_count > 0 ? `<p class="muted small" style="text-align:center">${hidden_count}개의 글은 신고로 숨겨져 보이지 않아요</p>` : "");
+    } catch (e) { minePosts = []; renderCalendar([]); listEl.innerHTML = emptyHtml("😢", window.friendlyError(e)); }
   }
 
-  // 닉네임 변경
-  $("#change-nick").addEventListener("click", () => {
-    const cur = Store.get("nickname");
-    window.openSheet(`
-      <h3>닉네임 변경</h3>
-      <p class="muted small" style="margin-bottom:10px">변경 후 쓴 글부터 새 닉네임이 적용돼요. ${periodLabel} 받은 딸기는 이전 닉네임(${esc(cur)})에 남아요.</p>
-      <div class="field"><input id="cn-input" class="input" maxlength="10" placeholder="새 닉네임 (2~10자)"><div class="help" id="cn-help">실명, 학교명, 전화번호는 쓸 수 없어요</div></div>
-      <div class="btn-row"><button class="btn btn-outline" id="cn-random">🎲 랜덤</button><button class="btn btn-primary" id="cn-save">변경하기</button></div>`, { center: true });
-    const input = $("#cn-input"), help = $("#cn-help");
-    $("#cn-random").addEventListener("click", async () => { const c = await window.randomUniqueNickname(); if (c) { input.value = c.name; help.textContent = `${c.person} — ${c.intro}`; help.classList.remove("error"); } });
-    $("#cn-save").addEventListener("click", async () => {
-      const n = input.value.trim(); const err = window.validateNickname(n);
-      if (err) { help.textContent = err; help.classList.add("error"); return; }
-      if (n === cur) { help.textContent = "지금 닉네임과 같아요"; help.classList.add("error"); return; }
-      $("#cn-save").disabled = true;
-      try {
-        const r = await window.API.changeNickname(cur, n, Store.get("nick_token"));
-        if (!r.ok) { help.textContent = r.error === "TAKEN" ? "이미 누군가 쓰고 있는 이름이에요" : window.friendlyError(r.error); help.classList.add("error"); return; }
-        const prev = Store.get("prev_nicknames", []); prev.push({ nickname: cur, until: new Date().toISOString() }); Store.set("prev_nicknames", prev);
-        Store.set("nickname", n); window.closeSheet(); loadMine();
-        window.toast(`닉네임을 ${n}(으)로 바꿨어요. ${periodLabel} 받은 딸기는 이전 닉네임에 남아요`, 3500);
-      } catch (e) { help.textContent = window.friendlyError(e); help.classList.add("error"); }
-      finally { $("#cn-save").disabled = false; }
-    });
-    setTimeout(() => input.focus(), 50);
+  // 나가기 (다음에 같은 닉네임 + 비밀번호로 다시 들어오면 기록이 이어져요)
+  $("#logout").addEventListener("click", () => {
+    if (!confirm("나갈까요?\n다음에 같은 닉네임과 비밀번호로 들어오면 내 기록을 다시 볼 수 있어요.")) return;
+    Session.clear(); minePosts = []; calCursor = null; homeLoadedAt = 0;
+    location.hash = ""; route();
   });
 
   // ---------- 시작 ----------

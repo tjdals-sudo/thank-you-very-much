@@ -19,7 +19,7 @@
     return list;
   }
   function nameList(list) {
-    const me = window.Store.get("nickname");
+    const me = window.Session.nickname();
     return list.map(n => (n === me ? "나" : n));
   }
   function summary(list) {
@@ -65,7 +65,7 @@
     countEl.textContent = Math.max(0, prev + (wasGiven ? -1 : 1));
     if (!wasGiven) { btn.classList.remove("pop"); void btn.offsetWidth; btn.classList.add("pop"); const fly = document.createElement("span"); fly.className = "fly"; fly.textContent = "🍓"; btn.appendChild(fly); setTimeout(() => fly.remove(), 700); }
     try {
-      const r = await window.API.toggleStrawberry(id, window.Store.get("nickname"));
+      const r = await window.API.toggleStrawberry(id, window.Session.nickname());
       btn.classList.toggle("given", !!r.given);
       countEl.textContent = r.count;
       setGiven(id, !!r.given);

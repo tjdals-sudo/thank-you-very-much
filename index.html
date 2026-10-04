@@ -31,7 +31,7 @@
     <div class="onboard">
       <div class="logo">땡큐 베리 머치!</div>
       <div class="logo-sub">익명으로 나누는 감사 노트</div>
-      <p class="greet">반가워요! 땡큐 베리 머치에서 쓸 이름을 정해주세요</p>
+      <p class="greet">반가워요! 닉네임과 비밀번호를 입력해주세요</p>
       <div class="card">
         <div class="nick-preview">
           <div class="nick" id="nick-preview-name">?</div>
@@ -42,10 +42,15 @@
           <input id="nick-input" class="input" maxlength="10" autocomplete="off" placeholder="직접 쓰거나 랜덤으로 뽑아요">
           <div class="help" id="nick-help">실명, 학교명, 전화번호는 쓸 수 없어요</div>
         </div>
-        <button type="button" class="btn btn-outline btn-block" id="nick-random">🎲 랜덤으로 정해주세요</button>
+        <button type="button" class="btn btn-outline btn-block" id="nick-random">🎲 새 닉네임 랜덤으로 뽑기</button>
+        <div class="field" style="margin-top:14px">
+          <label class="label" for="pin-input">비밀번호 <span class="opt">숫자 4자리</span></label>
+          <input id="pin-input" class="input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="숫자 4자리">
+          <div class="help" id="pin-help">처음이면 지금 정한 숫자가 비밀번호가 돼요. 꼭 기억해두세요!</div>
+        </div>
         <button type="button" class="btn btn-primary btn-block btn-lg" id="nick-start" style="margin-top:10px">시작하기</button>
       </div>
-      <p class="muted small">닉네임은 이 기기에만 저장돼요. 로그인은 필요 없어요.</p>
+      <p class="muted small">다음에 같은 닉네임과 비밀번호로 들어오면 내 기록을 다시 볼 수 있어요.<br>다른 기기에서도 똑같이 들어오면 돼요.</p>
     </div>
   </section>
 
@@ -172,7 +177,7 @@
     <div class="card">
       <div class="me-head">
         <span class="nick" id="me-nick"></span>
-        <button type="button" class="btn btn-outline btn-sm" id="change-nick" style="margin-left:auto">닉네임 변경</button>
+        <button type="button" class="btn btn-outline btn-sm" id="logout" style="margin-left:auto">나가기</button>
       </div>
       <div class="muted small" id="me-intro"></div>
       <div class="me-stats">
@@ -189,7 +194,7 @@
       </div>
       <div class="calendar" id="calendar"></div>
     </div>
-    <div class="notice">📱 <span>기기나 브라우저를 바꾸면 내 기록은 보이지 않아요. 글은 삭제하지 않는 한 모아보기에 남아요.</span></div>
+    <div class="notice">🔑 <span>같은 닉네임과 비밀번호로 들어오면 어느 기기에서든 내 기록을 볼 수 있어요. 비밀번호는 다른 사람에게 알려주지 마세요.</span></div>
     <h3 class="section-title">내가 쓴 감사</h3>
     <div id="my-list"></div>
   </section>
