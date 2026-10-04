@@ -273,7 +273,7 @@
       addMyPost({ id: r.id, token, created_at: r.created_at, emotion: W.emotion, date: window.kstDateStr(new Date(r.created_at)) });
       const g = { ...row, id: r.id, created_at: r.created_at, strawberry_count: 0 };
       W.last = { g, crisis };
-      $("#result-card").innerHTML = window.renderCard(g, { mine: true }) + (crisis ? `<div class="care-box">💛 힘든 마음을 나눠줘서 고마워요. 혼자 견디지 않아도 돼요. 주변 어른이나 상담 창구(청소년상담 <a href="tel:1388">1388</a>, 자살예방 <a href="tel:109">109</a>)에 이야기해 보세요.</div>` : "");
+      $("#result-card").innerHTML = window.renderCard(g, { mine: true }) + (crisis ? `<div class="care-box">💛 힘든 마음을 나눠줘서 감사해요. 혼자 견디지 않아도 돼요. 주변 어른이나 상담 창구(청소년상담 <a href="tel:1388">1388</a>, 자살예방 <a href="tel:109">109</a>)에 이야기해 보세요.</div>` : "");
       $("#result-sub").textContent = crisis ? "오늘의 마음도 소중한 기록이에요" : (rec ? `“${rec.reason}”` : "");
       $("#write-form").classList.add("hidden"); $("#write-result").classList.remove("hidden");
       celebrate(); homeLoadedAt = 0; feed.loadedOnce = false; window.scrollTo({ top: 0, behavior: "smooth" });
